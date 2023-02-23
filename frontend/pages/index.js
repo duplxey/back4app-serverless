@@ -1,4 +1,3 @@
-import Image from "next/image";
 import {useEffect, useState} from "react";
 import Parse from "parse/dist/parse.min.js";
 
@@ -26,42 +25,35 @@ const classNames = (...classes) => {
 export default function Home() {
 
   const [locations, setLocations] = useState([]);
-  const [location, setLocation] = useState(0);
+  const [activeLocation, setActiveLocation] = useState(0);
   const [currentWeather, setCurrentWeather] = useState({});
   const [weatherHistory, setWeatherHistory] = useState([]);
 
+  const fetchWeatherLocations = async () => {
+    return await Parse.Cloud.run("weatherLocations");
+  };
+
+  const fetchWeatherInfo = async (location) => {
+    return await Parse.Cloud.run("weatherInfo", {"location": location});
+  };
+
   useEffect(() => {
-
-    const fetchWeatherLocations = async () => {
-      const weatherLocations = await Parse.Cloud.run("weatherLocations");
-      setLocations(weatherLocations);
-    };
-
-    const fetchWeatherInfo = async () => {
-      const weatherInfo = await Parse.Cloud.run("weatherInfo", {"location": locations[location]});
-
-      if (weatherInfo.length === 0) {
-        console.error("Data hasn't been collected yet.");
-        return;
-      }
-
-      setCurrentWeather(weatherRecordToState(weatherInfo[0]));
-      let otherWeatherRecords = [];
-      for (let i = 1; i < weatherInfo.length; i++) {
-        otherWeatherRecords.push(weatherRecordToState(weatherInfo[i]));
-      }
-      setWeatherHistory(otherWeatherRecords);
-    };
-
-    fetchWeatherLocations().then(() => {
-      fetchWeatherInfo().catch(console.error);
+    fetchWeatherLocations().then((locations) => {
+      setLocations(locations);
+      fetchWeatherInfo(locations[activeLocation]).then((records) => {
+        setCurrentWeather(weatherRecordToState(records[0]));
+        let weatherRecords = [];
+        for (let i = 1; i < records.length; i++) {
+          weatherRecords.push(weatherRecordToState(records[i]));
+        }
+        setWeatherHistory(weatherRecords);
+      }).catch(console.error);
     }).catch(console.error);
-
-  }, [location]);
+  }, [activeLocation]);
 
   return (
     <>
-      {currentWeather && (
+      {locations.length && currentWeather && (
         <div className="flex items-center justify-center">
           <div className="flex flex-col justify-center max-w-md">
             <div className="mt-4 mb-6">
@@ -78,16 +70,16 @@ export default function Home() {
                   key={index}
                   className={classNames(
                     "font-semibold px-3 py-2 rounded-md cursor-pointer duration-200",
-                    location === index ? "bg-green-400 hover:bg-green-500 text-white" : "bg-slate-100 hover:bg-slate-200"
+                    activeLocation === index ? "bg-green-400 hover:bg-green-500 text-white" : "bg-slate-100 hover:bg-slate-200"
                   )}
-                  onClick={() => setLocation(index)}
+                  onClick={() => setActiveLocation(index)}
                 >
                   {titleCase(record)}
                 </div>
               ))}
             </div>
             <div className="flex justify-center max-w-128 bg-slate-100 shadow-md rounded-md">
-              <Image
+              <img
                 src={currentWeather.weatherIcon}
                 alt={currentWeather.weatherText}
                 className="max-w-sm p-5"
@@ -105,7 +97,7 @@ export default function Home() {
                       key={index}
                       className="flex justify-between bg-slate-100 shadow-md rounded-md p-2 items-center"
                     >
-                      <Image
+                      <img
                         src={record.weatherIcon}
                         alt={record.weatherText}
                         className="object-contain w-16 h-16"
