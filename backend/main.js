@@ -1,10 +1,13 @@
 const axios = require("axios");
 
-const WEATHER_API_BASE = "https://api.weatherapi.com/v1/current.json?key=354fc376a4ca42ee9f0145604222212";
-const WEATHER_API_LOCATIONS = ["sunnyvale", "mountain view"];
+const WEATHER_API_BASE = "https://api.weatherapi.com/v1/current.json?key=<api_key>";
 
 Parse.Cloud.define("weatherLocations", async (request) => {
-  return WEATHER_API_LOCATIONS;
+  const WeatherStation = Parse.Object.extend("WeatherStation");
+  const weatherStationQuery = new Parse.Query(WeatherStation);
+  const weatherStationResults = await weatherStationQuery.find();
+
+  return weatherStationResults.map(result => result.get("location"))
 });
 
 Parse.Cloud.define("weatherInfo", async (request) => {
@@ -14,37 +17,49 @@ Parse.Cloud.define("weatherInfo", async (request) => {
     throw new Parse.Error(400, "Location not provided.");
   }
 
-  if (!WEATHER_API_LOCATIONS.includes(location.toLowerCase())) {
-    throw new Parse.Error(400, "Location not allowed.");
+  const WeatherStation = Parse.Object.extend("WeatherStation");
+  const weatherStationQuery = new Parse.Query(WeatherStation);
+  weatherStationQuery.equalTo("location", location);
+  const weatherStationResults = await weatherStationQuery.find();
+
+  if (weatherStationResults.length === 0) {
+    throw new Parse.Error(400, "Invalid location.");
   }
 
   const WeatherRecord = Parse.Object.extend("WeatherRecord");
-  const query = new Parse.Query(WeatherRecord);
-  query.equalTo("location", location);
-  query.descending("createdAt");
-  query.limit(5);
-  const results = await query.find();
-
-  return results;
+  const weatherRecordQuery = new Parse.Query(WeatherRecord);
+  weatherRecordQuery.equalTo("weatherStation", weatherStationResults[0]);
+  weatherRecordQuery.descending("createdAt");
+  weatherRecordQuery.limit(5);
+  return await weatherRecordQuery.find();
 });
 
 Parse.Cloud.job("weatherCapture", async (request) =>  {
   const { params, headers, log, message } = request;
   message("weatherCapture just started...");
 
-  for (let i = 0; i < WEATHER_API_LOCATIONS.length; i++) {
-    let location = WEATHER_API_LOCATIONS[i];
+  const WeatherStation = Parse.Object.extend("WeatherStation");
+  const weatherStationQuery = new Parse.Query(WeatherStation);
+  const weatherStationResults = await weatherStationQuery.find();
+
+  for (let i = 0; i < weatherStationResults.length; i++) {
+    let weatherStation = weatherStationResults[i];
 
     try {
-      const response = await axios.get(WEATHER_API_BASE + "&q=" + location + "&aqi=no");
+      const response = await axios.get(
+        WEATHER_API_BASE + "&q=" + weatherStation.get("location") + "&aqi=no"
+      );
       const currentWeather = response.data.current.condition;
+      let icon = currentWeather.icon
+        .replace("//", "https://")
+        .replace("64x64", "128x128");
 
       const WeatherRecord = Parse.Object.extend("WeatherRecord");
       const weatherRecord = new WeatherRecord();
-      weatherRecord.set("location", location);
+      weatherRecord.set("weatherStation", weatherStation);
       weatherRecord.set("weatherText", currentWeather.text);
-      weatherRecord.set("weatherIcon", "https://" + currentWeather.icon.replace("//", "").replace("64x64", "128x128"));
-      weatherRecord.set("weatherCode", currentWeather.code + "");
+      weatherRecord.set("weatherIcon", icon);
+      weatherRecord.set("weatherCode", currentWeather.code);
       weatherRecord.save();
     } catch (error) {
       throw new Parse.Error(400, error);
